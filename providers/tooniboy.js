@@ -5,10 +5,6 @@ function at(arr, idx) {
   return arr && arr.length > idx ? arr.slice(idx, idx + 1).join("") : "";
 }
 
-function itemAt(arr, idx) {
-  return arr && arr.length > idx ? arr.slice(idx, idx + 1).pop() : null;
-}
-
 function slugify(text) {
   return String(text)
     .replace(/\(\d{4}\)/g, "")
@@ -32,44 +28,22 @@ function getTitle(tmdbId, mediaType) {
     .then(function(d) { return d ? (d.name || d.title || "") : ""; });
 }
 
-function unpackJS(html) {
-  var packed = html.match(/eval\(function\(p,a,c,k,e,[dr]\)\{[\s\S]*?\}\('([^']+)',\s*(\d+),\s*(\d+),\s*'([^']+)'\.split\('\|'\)/);
-  if (!packed) return html;
-  var p = at(packed, 1);
-  var a = parseInt(at(packed, 2), 10);
-  var c = parseInt(at(packed, 3), 10);
-  var k = at(packed, 4).split("|");
-  while (c--) {
-    if (at(k, c)) {
-      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), at(k, c));
-    }
-  }
-  return p;
-}
-
 function findStream(text) {
   try {
     var j = JSON.parse(text);
     if (j && j.videoSource) return String(j.videoSource).replace(/\\\//g, "/");
-    if (j && j.videoSources && j.videoSources.length > 0) {
-      var first = itemAt(j.videoSources, 0);
-      if (first && first.file) return String(first.file).replace(/\\\//g, "/");
-    }
   } catch (_) {}
 
-  var unpacked = unpackJS(text);
-  var combined = text + "\n" + unpacked;
-
-  var vs = combined.match(/["']?(?:videoSource|file|src)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
+  var vs = text.match(/["']?(?:videoSource|file)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
   if (vs && !/(?:scripts\.php|\.js|\.css|\.jpg|\.png|\.webp|\.vtt|\.srt)/i.test(at(vs, 1))) {
     return at(vs, 1).replace(/\\\//g, "/");
   }
-  var std = combined.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
+  var std = text.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
   if (std) return at(std, 1).replace(/\\\//g, "/");
   return "";
 }
 
-function resolveOneEmbed(embedUrl, pageUrl, title, s, e, idx, ua) {
+function checkEmbed(embedUrl, pageUrl, title, s, e, label, ua) {
   return fetch(embedUrl, { headers: { "User-Agent": ua, "Referer": pageUrl } })
     .then(function(r1) { return r1.text(); })
     .then(function(h1) {
@@ -86,15 +60,12 @@ function resolveOneEmbed(embedUrl, pageUrl, title, s, e, idx, ua) {
         var direct = findStream(h2);
         if (direct) {
           return {
-            ok: true,
-            item: {
-              name: "Tooniboy • Server " + (idx + 1) + " (Multi-Audio)",
-              title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
-              url: direct,
-              type: "hls",
-              quality: "HD",
-              headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
-            }
+            name: "Tooniboy • " + label,
+            title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
+            url: direct,
+            type: "hls",
+            quality: "HD",
+            headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
           };
         }
 
@@ -123,26 +94,15 @@ function resolveOneEmbed(embedUrl, pageUrl, title, s, e, idx, ua) {
             var apiStream = findStream(apiTxt);
             if (apiStream) {
               return {
-                ok: true,
-                item: {
-                  name: "Tooniboy • Server " + (idx + 1) + " (Multi-Audio)",
-                  title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
-                  url: apiStream,
-                  type: "hls",
-                  quality: "HD",
-                  headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
-                }
+                name: "Tooniboy • " + label,
+                title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
+                url: apiStream,
+                type: "hls",
+                quality: "HD",
+                headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
               };
             }
-            return {
-              ok: false,
-              item: {
-                name: "Server " + (idx + 1) + " Host",
-                title: targetUrl,
-                url: targetUrl,
-                quality: "INFO"
-              }
-            };
+            return null;
           });
       });
     })
@@ -177,23 +137,16 @@ function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
-        if (embeds.length === 0) {
-          return [{ name: "Tooniboy Page", title: pageUrl + " (0 embeds)", url: pageUrl, quality: "INFO" }];
-        }
+        if (embeds.length === 0) return [];
 
-        var tasks = embeds.slice(0, 4).map(function(embedUrl, idx) {
-          return resolveOneEmbed(embedUrl, pageUrl, title, s, e, idx, ua);
-        });
-
-        return Promise.all(tasks).then(function(results) {
-          var valid = [];
-          var debugs = [];
-          for (var i = 0; i < results.length; i++) {
-            var r = itemAt(results, i);
-            if (r && r.ok) valid.push(r.item);
-            else if (r && !r.ok) debugs.push(r.item);
+        return checkEmbed(at(embeds, 0), pageUrl, title, s, e, "Multi-Audio", ua).then(function(s1) {
+          if (s1) return [s1];
+          if (embeds.length > 1) {
+            return checkEmbed(at(embeds, 1), pageUrl, title, s, e, "Server 2", ua).then(function(s2) {
+              return s2 ? [s2] : [];
+            });
           }
-          return valid.length > 0 ? valid : debugs;
+          return [];
         });
       });
   }).catch(function() { return []; });

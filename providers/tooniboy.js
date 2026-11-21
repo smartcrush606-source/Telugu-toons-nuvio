@@ -39,7 +39,7 @@ function findStream(text) {
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  var ua = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126.0.0.0 Mobile Safari/537.36";
+  var ua = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
   var hdr = { "User-Agent": ua, "Referer": BASE_URL + "/" };
 
   return getTitle(tmdbId, mediaType).then(function(title) {
@@ -66,9 +66,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
-        if (embeds.length === 0) {
-          return [{ name: "Tooniboy Debug", title: pageUrl + " (0 embeds)", url: pageUrl, quality: "INFO" }];
-        }
+        if (embeds.length === 0) return [];
 
         var firstEmbed = at(embeds, 0);
         return fetch(firstEmbed, { headers: { "User-Agent": ua, "Referer": pageUrl } })
@@ -88,10 +86,11 @@ function getStreams(tmdbId, mediaType, season, episode) {
               if (direct) {
                 return [{
                   name: "Tooniboy • Multi-Audio",
-                  title: title + " S" + s + "E" + e + "\n[Tap Audio Icon -> Telugu]",
+                  title: title + " S" + s + "E" + e + "\n" + direct,
                   url: direct,
+                  type: "hls",
                   quality: "HD",
-                  headers: { "Referer": origin + "/", "Origin": origin, "User-Agent": ua }
+                  headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
                 }];
               }
               var vid = at(at(targetUrl.split("/"), targetUrl.split("/").length - 1).split("?"), 0);
@@ -112,25 +111,19 @@ function getStreams(tmdbId, mediaType, season, episode) {
                   if (apiStream) {
                     return [{
                       name: "Tooniboy • Multi-Audio",
-                      title: title + " S" + s + "E" + e + "\n[Tap Audio Icon -> Telugu]",
+                      title: title + " S" + s + "E" + e + "\n" + apiStream,
                       url: apiStream,
+                      type: "hls",
                       quality: "HD",
-                      headers: { "Referer": origin + "/", "Origin": origin, "User-Agent": ua }
+                      headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
                     }];
                   }
-                  return [{
-                    name: "Tooniboy Host Info",
-                    title: "Host: " + targetUrl,
-                    url: targetUrl,
-                    quality: "DEBUG"
-                  }];
+                  return [];
                 });
             });
           });
       });
-  }).catch(function(err) {
-    return [{ name: "Tooniboy Err", title: String(err), url: BASE_URL, quality: "ERR" }];
-  });
+  }).catch(function() { return []; });
 }
 
 module.exports = { getStreams: getStreams };

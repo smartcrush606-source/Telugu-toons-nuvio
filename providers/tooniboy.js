@@ -43,6 +43,24 @@ function unpackJS(html) {
   return p;
 }
 
+function findHlsUrl(text) {
+  // 1. Match ravok.buzz or HLS CDN links (with or without .m3u8 extension)
+  var ravok = text.match(/(https?:\/\/[a-z0-9.-]*ravok\.buzz[^"'\s\\]+)/i);
+  if (ravok) return at(ravok, 1).replace(/\\\//g, "/");
+
+  // 2. Match JW Player file:"..." or sources:[{"file":"..."}]
+  var jwFile = text.match(/["']?file["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
+  if (jwFile && !/\.(?:jpg|jpeg|png|webp|vtt|srt|js|css)/i.test(at(jwFile, 1))) {
+    return at(jwFile, 1).replace(/\\\//g, "/");
+  }
+
+  // 3. Standard .m3u8 or .mp4 URL
+  var std = text.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
+  if (std) return at(std, 1).replace(/\\\//g, "/");
+
+  return "";
+}
+
 function getStreams(tmdbId, mediaType, season, episode) {
   var headers = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
@@ -63,7 +81,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       .then(function(res) { return res.text(); })
       .then(function(html) {
         var streams = [];
-        var regex = /<iframe[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
+        var regex = /<iframe[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+)["']/gi;
         var match;
         var embeds = [];
 
@@ -76,16 +94,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
-        if (embeds.length === 0) {
-          return [{
-            name: "Tooniboy Status",
-            title: "Page: " + pageUrl + " (len=" + html.length + ") - 0 iframes",
-            url: pageUrl,
-            quality: "INFO"
-          }];
-        }
-
-        var tasks = embeds.slice(0, 6).map(function(embedUrl, idx) {
+        var tasks = embeds.slice(0, 5).map(function(embedUrl, idx) {
           return fetch(embedUrl, { headers: { "User-Agent": headers["User-Agent"], "Referer": pageUrl } })
             .then(function(r) { return r.text(); })
             .then(function(h1) {
@@ -101,25 +110,20 @@ function getStreams(tmdbId, mediaType, season, episode) {
             })
             .then(function(obj) {
               var fullText = obj.html + "\n" + unpackJS(obj.html);
-              var m3u8 = fullText.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
-              var streamUrl = at(m3u8, 1).replace(/\\\//g, "/");
-              var hostName = at(obj.ref.split("/"), 2).replace("www.", "");
+              var streamUrl = findHlsUrl(fullText);
+              var refOrigin = obj.ref.split("/").slice(0, 3).join("/") + "/";
 
               if (streamUrl) {
                 streams.push({
-                  name: "Tooniboy • " + (hostName || ("Server " + (idx + 1))),
-                  title: title + " S" + s + "E" + e + " [Direct Multi-Audio]\n[Tap Audio Icon -> Select Telugu]",
+                  name: "Tooniboy • Server " + (idx + 1) + " (Multi-Audio)",
+                  title: title + " S" + s + "E" + e + " [JW HLS]\n[Tap Audio Icon -> Select Telugu]",
                   url: streamUrl,
                   quality: "HD",
-                  headers: { "Referer": obj.ref, "User-Agent": headers["User-Agent"] }
-                });
-              } else {
-                streams.push({
-                  name: "Tooniboy Embed " + (idx + 1),
-                  title: title + " S" + s + "E" + e + " (" + hostName + ")",
-                  url: obj.ref,
-                  quality: "HD",
-                  headers: { "Referer": pageUrl, "User-Agent": headers["User-Agent"] }
+                  headers: {
+                    "Referer": refOrigin,
+                    "Origin": refOrigin.slice(0, -1),
+                    "User-Agent": headers["User-Agent"]
+                  }
                 });
               }
             })
@@ -128,14 +132,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
         return Promise.all(tasks).then(function() { return streams; });
       });
-  }).catch(function(err) {
-    return [{
-      name: "Tooniboy Error",
-      title: String(err),
-      url: BASE_URL,
-      quality: "ERR"
-    }];
-  });
+  }).catch(function() { return []; });
 }
 
 module.exports = { getStreams: getStreams };

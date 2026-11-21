@@ -2,7 +2,7 @@ const BASE_URL = "https://tooniboy." + "xyz";
 const TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
 
 function slugify(text) {
-  return text
+  return String(text)
     .toLowerCase()
     .replace(/['’]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
@@ -24,29 +24,47 @@ async function resolveTitle(tmdbId, mediaType) {
   return data ? (data.name || data.title || data.original_name || data.original_title) : null;
 }
 
-async function extractVideoFromEmbed(embedUrl, referer, headers) {
+function unpackJS(html) {
+  const packed = html.match(/eval\(function\(p,a,c,k,e,[dr]\)\{[\s\S]*?\}\('([^']+)',\s*(\d+),\s*(\d+),\s*'([^']+)'\.split\('\|'\)/);
+  if (!packed) return html;
+  let p = packed[1];
+  const a = parseInt(packed[2], 10);
+  let c = parseInt(packed[3], 10);
+  const k = packed[4].split("|");
+  while (c--) {
+    if (k[c]) {
+      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
+    }
+  }
+  return p;
+}
+
+async function extractMediaUrl(embedUrl, referer, headers) {
   try {
     const res = await fetch(embedUrl, { headers: { ...headers, Referer: referer } });
-    const html = await res.text();
+    let html = await res.text();
 
-    // 1. Direct m3u8 or mp4 URL inside player HTML/JS
-    const direct = html.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
-    if (direct) return direct.replace(/\\\//g, "/");
-
-    // 2. Packed JS (eval(function(p,a,c,k,e,d))) used by Ruby / Streamwish / Vidhide / Moly
-    const packed = html.match(/eval\(function\(p,a,c,k,e,[dr]\)\{[\s\S]*?\}\('([^']+)',\s*(\d+),\s*(\d+),\s*'([^']+)'\.split\('\|'\)/);
-    if (packed) {
-      let p = packed;
-      const a = parseInt(packed, 10);
-      let c = parseInt(packed, 10);
-      const k = packed.split("|");
-      while (c--) {
-        if (k[c]) {
-          p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
-        }
+    // If tooniboy ?trembed= wrapper page, extract inner iframe src first
+    if (html.includes("trembed") || embedUrl.includes("trembed=")) {
+      const inner = html.match(/<iframe[^>]+src=["'](https?:\/\/[^"']+|\/\/[^"']+)["']/i);
+      if (inner) {
+        let nextUrl = inner[1];
+        if (nextUrl.startsWith("//")) nextUrl = "https:" + nextUrl;
+        const res2 = await fetch(nextUrl, { headers: { ...headers, Referer: embedUrl } });
+        html = await res2.text();
+        embedUrl = nextUrl;
       }
-      const unpackedUrl = p.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
-      if (unpackedUrl) return unpackedUrl.replace(/\\\//g, "/");
+    }
+
+    const unpacked = unpackJS(html);
+    const combined = html + "\n" + unpacked;
+
+    const match = combined.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
+    if (match) {
+      return {
+        url: match[1].replace(/\\\//g, "/"),
+        referer: embedUrl
+      };
     }
   } catch (_) {}
   return null;
@@ -63,60 +81,50 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     };
 
     const slug = slugify(title);
-    const candidatePages = [];
-
-    if (mediaType === "movie") {
-      candidatePages.push(BASE_URL + "/movies/" + slug + "/");
-      candidatePages.push(BASE_URL + "/" + slug + "/");
-    } else {
-      const s = season || 1;
-      const e = episode || 1;
-      candidatePages.push(BASE_URL + "/episode/" + slug + "-" + s + "x" + e + "/");
-      candidatePages.push(BASE_URL + "/episode/" + slug + "-classic-" + s + "x" + e + "/");
-    }
-
-    // Fallback search on tooniboy.xyz if direct slug didn't match
-    const searchRes = await fetch(BASE_URL + "/?s=" + encodeURIComponent(title), { headers });
-    const searchHtml = await searchRes.text();
     const s = season || 1;
     const e = episode || 1;
 
-    if (mediaType !== "movie") {
-      const epRegex = new RegExp('href="(https?:\\/\\/tooniboy\\.xyz\\/episode\\/[^"]*-' + s + "x" + e + '\\/?)"', "gi");
-      for (const m of searchHtml.matchAll(epRegex)) {
-        if (!candidatePages.includes(m)) candidatePages.push(m);
-      }
-    }
+    const candidatePages = mediaType === "movie"
+      ? [BASE_URL + "/movies/" + slug + "/", BASE_URL + "/" + slug + "/"]
+      : [
+          BASE_URL + "/episode/" + slug + "-" + s + "x" + e + "/",
+          BASE_URL + "/episode/" + slug + "-classic-" + s + "x" + e + "/"
+        ];
 
     const streams = [];
-    const triedEmbeds = new Set();
+    const seenEmbeds = new Set();
 
-    for (const pageUrl of candidatePages.slice(0, 3)) {
+    for (const pageUrl of candidatePages) {
       const pageRes = await fetch(pageUrl, { headers });
       if (!pageRes.ok) continue;
       const pageHtml = await pageRes.text();
 
-      // Grab all player iframes + WordPress DooPlay / Torofilm data-url / embed links
-      const embedRegex = /(?:<iframe[^>]+src=|data-url=|data-src=)["'](https?:\/\/[^"']+|\/\/[^"']+)["']/gi;
-      for (const match of pageHtml.matchAll(embedRegex)) {
-        let embedUrl = match;
+      // Match Torofilm ?trembed= iframes + standard player iframes
+      const iframeRegex = /<iframe[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+)["']/gi;
+      let m;
+      while ((m = iframeRegex.exec(pageHtml)) !== null) {
+        let embedUrl = m[1].replace(/&amp;/g, "&");
         if (embedUrl.startsWith("//")) embedUrl = "https:" + embedUrl;
-        if (/youtube|facebook|google|gravatar|tooniboy\.xyz\/wp-/i.test(embedUrl)) continue;
-        if (triedEmbeds.has(embedUrl)) continue;
-        triedEmbeds.add(embedUrl);
+        if (embedUrl.startsWith("/")) embedUrl = BASE_URL + embedUrl;
+        if (/youtube|facebook|google|ads|gravatar/i.test(embedUrl)) continue;
+        if (seenEmbeds.has(embedUrl)) continue;
+        seenEmbeds.add(embedUrl);
 
-        const videoUrl = await extractVideoFromEmbed(embedUrl, pageUrl, headers);
-        if (videoUrl) {
-          let hostName = "Server";
-          try { hostName = new URL(embedUrl).hostname.replace("www.", "").split("."); } catch (_) {}
+        const extracted = await extractMediaUrl(embedUrl, pageUrl, headers);
+        if (extracted) {
+          let label = "Server " + (streams.length + 1);
+          try {
+            const host = new URL(extracted.referer).hostname.replace("www.", "");
+            if (!host.includes("tooniboy")) label = host.split(".")[0];
+          } catch (_) {}
 
           streams.push({
-            name: "Tooniboy (" + hostName + ")",
+            name: "Tooniboy (" + label + ")",
             title: title + (mediaType === "tv" ? " S" + s + "E" + e : "") + "\n[Multi-Audio: Telugu / Hindi / Tamil / Eng]",
-            url: videoUrl,
-            quality: videoUrl.includes("1080") ? "1080p" : videoUrl.includes("720") ? "720p" : "HD",
+            url: extracted.url,
+            quality: "HD",
             headers: {
-              "Referer": embedUrl,
+              "Referer": extracted.referer,
               "User-Agent": headers["User-Agent"]
             }
           });

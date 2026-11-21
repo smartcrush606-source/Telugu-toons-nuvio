@@ -76,6 +76,15 @@ function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
+        if (embeds.length === 0) {
+          return [{
+            name: "Tooniboy Status",
+            title: "Page: " + pageUrl + " (len=" + html.length + ") - 0 iframes",
+            url: pageUrl,
+            quality: "INFO"
+          }];
+        }
+
         var tasks = embeds.slice(0, 6).map(function(embedUrl, idx) {
           return fetch(embedUrl, { headers: { "User-Agent": headers["User-Agent"], "Referer": pageUrl } })
             .then(function(r) { return r.text(); })
@@ -99,10 +108,18 @@ function getStreams(tmdbId, mediaType, season, episode) {
               if (streamUrl) {
                 streams.push({
                   name: "Tooniboy • " + (hostName || ("Server " + (idx + 1))),
-                  title: title + " S" + s + "E" + e + "\n[Tap Audio Icon -> Select Telugu]",
+                  title: title + " S" + s + "E" + e + " [Direct Multi-Audio]\n[Tap Audio Icon -> Select Telugu]",
                   url: streamUrl,
                   quality: "HD",
                   headers: { "Referer": obj.ref, "User-Agent": headers["User-Agent"] }
+                });
+              } else {
+                streams.push({
+                  name: "Tooniboy Embed " + (idx + 1),
+                  title: title + " S" + s + "E" + e + " (" + hostName + ")",
+                  url: obj.ref,
+                  quality: "HD",
+                  headers: { "Referer": pageUrl, "User-Agent": headers["User-Agent"] }
                 });
               }
             })
@@ -111,7 +128,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
         return Promise.all(tasks).then(function() { return streams; });
       });
-  }).catch(function() { return []; });
+  }).catch(function(err) {
+    return [{
+      name: "Tooniboy Error",
+      title: String(err),
+      url: BASE_URL,
+      quality: "ERR"
+    }];
+  });
 }
 
 module.exports = { getStreams: getStreams };

@@ -24,6 +24,32 @@ function getTitle(tmdbId, mediaType) {
     .then(function(d) { return d ? (d.name || d.title || d.original_name || d.original_title) : null; });
 }
 
+function unpackJS(html) {
+  var packed = html.match(/eval\(function\(p,a,c,k,e,[dr]\)\{[\s\S]*?\}\('([^']+)',\s*(\d+),\s*(\d+),\s*'([^']+)'\.split\('\|'\)/);
+  if (!packed || !packed) return html;
+  var p = packed;
+  var a = parseInt(packed, 10);
+  var c = parseInt(packed, 10);
+  var k = packed.split("|");
+  while (c--) {
+    if (k[c]) {
+      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
+    }
+  }
+  return p;
+}
+
+function extractLabels(html) {
+  var labels = [];
+  var btnRegex = /<a[^>]+href=["']#options-(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  var m;
+  while ((m = btnRegex.exec(html)) !== null) {
+    var clean = m.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    labels[parseInt(m, 10)] = clean;
+  }
+  return labels;
+}
+
 function getStreams(tmdbId, mediaType, season, episode) {
   var headers = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
@@ -44,12 +70,13 @@ function getStreams(tmdbId, mediaType, season, episode) {
       .then(function(res) { return res.text(); })
       .then(function(html) {
         var streams = [];
+        var labels = extractLabels(html);
         var regex = /<iframe[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
         var match;
         var embeds = [];
 
         while ((match = regex.exec(html)) !== null) {
-          var u = String(match[1]).replace(/&amp;/g, "&");
+          var u = String(match).replace(/&amp;/g, "&");
           if (u.indexOf("//") === 0) u = "https:" + u;
           if (u.indexOf("/") === 0) u = BASE_URL + u;
           if (!/youtube|facebook|google|ads|gravatar/i.test(u) && embeds.indexOf(u) === -1) {
@@ -57,22 +84,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
-        if (embeds.length === 0) {
-          return [{
-            name: "Tooniboy Status",
-            title: "Page: " + pageUrl + " (len=" + html.length + ") - 0 iframes",
-            url: pageUrl,
-            quality: "INFO"
-          }];
-        }
-
-        var tasks = embeds.slice(0, 5).map(function(embedUrl, idx) {
+        var tasks = embeds.slice(0, 6).map(function(embedUrl, idx) {
+          var tabLabel = labels[idx] || ("Server " + (idx + 1));
           return fetch(embedUrl, { headers: { "User-Agent": headers["User-Agent"], "Referer": pageUrl } })
             .then(function(r) { return r.text(); })
             .then(function(h1) {
               var innerMatch = h1.match(/<iframe[^>]+src=["'](https?:\/\/[^"']+|\/\/[^"']+)["']/i);
-              if (innerMatch && innerMatch[1]) {
-                var nextUrl = innerMatch[1];
+              if (innerMatch && innerMatch) {
+                var nextUrl = innerMatch;
                 if (nextUrl.indexOf("//") === 0) nextUrl = "https:" + nextUrl;
                 return fetch(nextUrl, { headers: { "User-Agent": headers["User-Agent"], "Referer": embedUrl } })
                   .then(function(r2) { return r2.text(); })
@@ -81,22 +100,21 @@ function getStreams(tmdbId, mediaType, season, episode) {
               return { html: h1, ref: embedUrl };
             })
             .then(function(obj) {
-              var m3u8 = obj.html.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
-              if (m3u8 && m3u8[1]) {
+              var fullText = obj.html + "\n" + unpackJS(obj.html);
+              var m3u8 = fullText.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
+              var hostName = "";
+              try {
+                var parts = obj.ref.split("/");
+                if (parts) hostName = parts.replace("www.", "");
+              } catch (_) {}
+
+              if (m3u8 && m3u8) {
                 streams.push({
-                  name: "Tooniboy Server " + (idx + 1),
-                  title: title + " S" + s + "E" + e + "\n[Multi-Audio: Telugu / Hindi / Tamil / Eng]",
-                  url: m3u8[1].replace(/\\\//g, "/"),
+                  name: "Tooniboy • " + tabLabel,
+                  title: title + " S" + s + "E" + e + " (" + hostName + ")\n[Check Audio Track for Telugu]",
+                  url: m3u8.replace(/\\\//g, "/"),
                   quality: "HD",
                   headers: { "Referer": obj.ref, "User-Agent": headers["User-Agent"] }
-                });
-              } else {
-                streams.push({
-                  name: "Tooniboy Embed " + (idx + 1),
-                  title: title + " S" + s + "E" + e + " [Player Page]\n" + obj.ref,
-                  url: obj.ref,
-                  quality: "HD",
-                  headers: { "Referer": pageUrl, "User-Agent": headers["User-Agent"] }
                 });
               }
             })
@@ -105,14 +123,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
         return Promise.all(tasks).then(function() { return streams; });
       });
-  }).catch(function(err) {
-    return [{
-      name: "Tooniboy Error",
-      title: String(err),
-      url: BASE_URL,
-      quality: "ERR"
-    }];
-  });
+  }).catch(function() { return []; });
 }
 
 module.exports = { getStreams: getStreams };

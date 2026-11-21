@@ -1,6 +1,10 @@
 var BASE_URL = "https://tooniboy." + "xyz";
 var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
 
+function at(arr, idx) {
+  return arr && arr.length > idx ? arr.slice(idx, idx + 1).join("") : "";
+}
+
 function slugify(text) {
   return String(text)
     .toLowerCase()
@@ -26,28 +30,17 @@ function getTitle(tmdbId, mediaType) {
 
 function unpackJS(html) {
   var packed = html.match(/eval\(function\(p,a,c,k,e,[dr]\)\{[\s\S]*?\}\('([^']+)',\s*(\d+),\s*(\d+),\s*'([^']+)'\.split\('\|'\)/);
-  if (!packed || !packed) return html;
-  var p = packed;
-  var a = parseInt(packed, 10);
-  var c = parseInt(packed, 10);
-  var k = packed.split("|");
+  if (!packed) return html;
+  var p = at(packed, 1);
+  var a = parseInt(at(packed, 2), 10);
+  var c = parseInt(at(packed, 3), 10);
+  var k = at(packed, 4).split("|");
   while (c--) {
-    if (k[c]) {
-      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
+    if (at(k, c)) {
+      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), at(k, c));
     }
   }
   return p;
-}
-
-function extractLabels(html) {
-  var labels = [];
-  var btnRegex = /<a[^>]+href=["']#options-(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  var m;
-  while ((m = btnRegex.exec(html)) !== null) {
-    var clean = m.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-    labels[parseInt(m, 10)] = clean;
-  }
-  return labels;
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
@@ -70,28 +63,26 @@ function getStreams(tmdbId, mediaType, season, episode) {
       .then(function(res) { return res.text(); })
       .then(function(html) {
         var streams = [];
-        var labels = extractLabels(html);
         var regex = /<iframe[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
         var match;
         var embeds = [];
 
         while ((match = regex.exec(html)) !== null) {
-          var u = String(match).replace(/&amp;/g, "&");
+          var u = at(match, 1).replace(/&amp;/g, "&");
           if (u.indexOf("//") === 0) u = "https:" + u;
           if (u.indexOf("/") === 0) u = BASE_URL + u;
-          if (!/youtube|facebook|google|ads|gravatar/i.test(u) && embeds.indexOf(u) === -1) {
+          if (u && !/youtube|facebook|google|ads|gravatar/i.test(u) && embeds.indexOf(u) === -1) {
             embeds.push(u);
           }
         }
 
         var tasks = embeds.slice(0, 6).map(function(embedUrl, idx) {
-          var tabLabel = labels[idx] || ("Server " + (idx + 1));
           return fetch(embedUrl, { headers: { "User-Agent": headers["User-Agent"], "Referer": pageUrl } })
             .then(function(r) { return r.text(); })
             .then(function(h1) {
               var innerMatch = h1.match(/<iframe[^>]+src=["'](https?:\/\/[^"']+|\/\/[^"']+)["']/i);
-              if (innerMatch && innerMatch) {
-                var nextUrl = innerMatch;
+              if (innerMatch) {
+                var nextUrl = at(innerMatch, 1);
                 if (nextUrl.indexOf("//") === 0) nextUrl = "https:" + nextUrl;
                 return fetch(nextUrl, { headers: { "User-Agent": headers["User-Agent"], "Referer": embedUrl } })
                   .then(function(r2) { return r2.text(); })
@@ -102,17 +93,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
             .then(function(obj) {
               var fullText = obj.html + "\n" + unpackJS(obj.html);
               var m3u8 = fullText.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
-              var hostName = "";
-              try {
-                var parts = obj.ref.split("/");
-                if (parts) hostName = parts.replace("www.", "");
-              } catch (_) {}
+              var streamUrl = at(m3u8, 1).replace(/\\\//g, "/");
+              var hostName = at(obj.ref.split("/"), 2).replace("www.", "");
 
-              if (m3u8 && m3u8) {
+              if (streamUrl) {
                 streams.push({
-                  name: "Tooniboy • " + tabLabel,
-                  title: title + " S" + s + "E" + e + " (" + hostName + ")\n[Check Audio Track for Telugu]",
-                  url: m3u8.replace(/\\\//g, "/"),
+                  name: "Tooniboy • " + (hostName || ("Server " + (idx + 1))),
+                  title: title + " S" + s + "E" + e + "\n[Tap Audio Icon -> Select Telugu]",
+                  url: streamUrl,
                   quality: "HD",
                   headers: { "Referer": obj.ref, "User-Agent": headers["User-Agent"] }
                 });

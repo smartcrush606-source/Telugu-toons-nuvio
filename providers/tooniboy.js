@@ -49,7 +49,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
         var embeds = [];
 
         while ((match = regex.exec(html)) !== null) {
-          var u = match[1].replace(/&amp;/g, "&");
+          var u = String(match[1]).replace(/&amp;/g, "&");
           if (u.indexOf("//") === 0) u = "https:" + u;
           if (u.indexOf("/") === 0) u = BASE_URL + u;
           if (!/youtube|facebook|google|ads|gravatar/i.test(u) && embeds.indexOf(u) === -1) {
@@ -59,8 +59,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
         if (embeds.length === 0) {
           return [{
-            name: "Tooniboy Debug",
-            title: "Fetched " + pageUrl + " (len=" + html.length + ") - 0 iframes found",
+            name: "Tooniboy Status",
+            title: "Page: " + pageUrl + " (len=" + html.length + ") - 0 iframes",
             url: pageUrl,
             quality: "INFO"
           }];
@@ -71,7 +71,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
             .then(function(r) { return r.text(); })
             .then(function(h1) {
               var innerMatch = h1.match(/<iframe[^>]+src=["'](https?:\/\/[^"']+|\/\/[^"']+)["']/i);
-              if (innerMatch) {
+              if (innerMatch && innerMatch[1]) {
                 var nextUrl = innerMatch[1];
                 if (nextUrl.indexOf("//") === 0) nextUrl = "https:" + nextUrl;
                 return fetch(nextUrl, { headers: { "User-Agent": headers["User-Agent"], "Referer": embedUrl } })
@@ -82,7 +82,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
             })
             .then(function(obj) {
               var m3u8 = obj.html.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
-              if (m3u8) {
+              if (m3u8 && m3u8[1]) {
                 streams.push({
                   name: "Tooniboy Server " + (idx + 1),
                   title: title + " S" + s + "E" + e + "\n[Multi-Audio: Telugu / Hindi / Tamil / Eng]",

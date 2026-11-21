@@ -5,6 +5,10 @@ function at(arr, idx) {
   return arr && arr.length > idx ? arr.slice(idx, idx + 1).join("") : "";
 }
 
+function itemAt(arr, idx) {
+  return arr && arr.length > idx ? arr.slice(idx, idx + 1).pop() : null;
+}
+
 function slugify(text) {
   return String(text)
     .replace(/\(\d{4}\)/g, "")
@@ -48,7 +52,7 @@ function findStream(text) {
     var j = JSON.parse(text);
     if (j && j.videoSource) return String(j.videoSource).replace(/\\\//g, "/");
     if (j && j.videoSources && j.videoSources.length > 0) {
-      var first = at(j.videoSources, 0);
+      var first = itemAt(j.videoSources, 0);
       if (first && first.file) return String(first.file).replace(/\\\//g, "/");
     }
   } catch (_) {}
@@ -56,7 +60,7 @@ function findStream(text) {
   var unpacked = unpackJS(text);
   var combined = text + "\n" + unpacked;
 
-  var vs = combined.match(/["']?(?:videoSource|file)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
+  var vs = combined.match(/["']?(?:videoSource|file|src)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
   if (vs && !/(?:scripts\.php|\.js|\.css|\.jpg|\.png|\.webp|\.vtt|\.srt)/i.test(at(vs, 1))) {
     return at(vs, 1).replace(/\\\//g, "/");
   }
@@ -82,12 +86,15 @@ function resolveOneEmbed(embedUrl, pageUrl, title, s, e, idx, ua) {
         var direct = findStream(h2);
         if (direct) {
           return {
-            name: "Tooniboy • Server " + (idx + 1) + " (Multi-Audio)",
-            title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
-            url: direct,
-            type: "hls",
-            quality: "HD",
-            headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
+            ok: true,
+            item: {
+              name: "Tooniboy • Server " + (idx + 1) + " (Multi-Audio)",
+              title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
+              url: direct,
+              type: "hls",
+              quality: "HD",
+              headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
+            }
           };
         }
 
@@ -116,15 +123,26 @@ function resolveOneEmbed(embedUrl, pageUrl, title, s, e, idx, ua) {
             var apiStream = findStream(apiTxt);
             if (apiStream) {
               return {
-                name: "Tooniboy • Server " + (idx + 1) + " (Multi-Audio)",
-                title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
-                url: apiStream,
-                type: "hls",
-                quality: "HD",
-                headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
+                ok: true,
+                item: {
+                  name: "Tooniboy • Server " + (idx + 1) + " (Multi-Audio)",
+                  title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
+                  url: apiStream,
+                  type: "hls",
+                  quality: "HD",
+                  headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
+                }
               };
             }
-            return null;
+            return {
+              ok: false,
+              item: {
+                name: "Server " + (idx + 1) + " Host",
+                title: targetUrl,
+                url: targetUrl,
+                quality: "INFO"
+              }
+            };
           });
       });
     })
@@ -159,18 +177,26 @@ function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
-        if (embeds.length === 0) return [];
+        if (embeds.length === 0) {
+          return [{ name: "Tooniboy Page", title: pageUrl + " (0 embeds)", url: pageUrl, quality: "INFO" }];
+        }
 
         var tasks = embeds.slice(0, 4).map(function(embedUrl, idx) {
           return resolveOneEmbed(embedUrl, pageUrl, title, s, e, idx, ua);
         });
 
         return Promise.all(tasks).then(function(results) {
-          return results.filter(function(item) { return item !== null; });
+          var valid = [];
+          var debugs = [];
+          for (var i = 0; i < results.length; i++) {
+            var r = itemAt(results, i);
+            if (r && r.ok) valid.push(r.item);
+            else if (r && !r.ok) debugs.push(r.item);
+          }
+          return valid.length > 0 ? valid : debugs;
         });
       });
   }).catch(function() { return []; });
 }
 
 module.exports = { getStreams: getStreams };
-    

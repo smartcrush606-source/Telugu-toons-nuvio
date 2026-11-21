@@ -27,10 +27,10 @@ async function resolveTitle(tmdbId, mediaType) {
 function unpackJS(html) {
   const packed = html.match(/eval\(function\(p,a,c,k,e,[dr]\)\{[\s\S]*?\}\('([^']+)',\s*(\d+),\s*(\d+),\s*'([^']+)'\.split\('\|'\)/);
   if (!packed) return html;
-  let p = packed[1];
-  const a = parseInt(packed[2], 10);
-  let c = parseInt(packed[3], 10);
-  const k = packed[4].split("|");
+  let p = packed;
+  const a = parseInt(packed, 10);
+  let c = parseInt(packed, 10);
+  const k = packed.split("|");
   while (c--) {
     if (k[c]) {
       p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
@@ -39,34 +39,39 @@ function unpackJS(html) {
   return p;
 }
 
-async function extractMediaUrl(embedUrl, referer, headers) {
+async function resolveEmbed(embedUrl, referer, headers) {
+  let finalEmbed = embedUrl;
   try {
     const res = await fetch(embedUrl, { headers: { ...headers, Referer: referer } });
     let html = await res.text();
 
-    // If tooniboy ?trembed= wrapper page, extract inner iframe src first
+    // Unwrap tooniboy ?trembed= wrapper page
     if (html.includes("trembed") || embedUrl.includes("trembed=")) {
       const inner = html.match(/<iframe[^>]+src=["'](https?:\/\/[^"']+|\/\/[^"']+)["']/i);
       if (inner) {
-        let nextUrl = inner[1];
+        let nextUrl = inner;
         if (nextUrl.startsWith("//")) nextUrl = "https:" + nextUrl;
+        finalEmbed = nextUrl;
         const res2 = await fetch(nextUrl, { headers: { ...headers, Referer: embedUrl } });
         html = await res2.text();
-        embedUrl = nextUrl;
       }
     }
 
-    const unpacked = unpackJS(html);
-    const combined = html + "\n" + unpacked;
-
+    const combined = html + "\n" + unpackJS(html);
     const match = combined.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
     if (match) {
       return {
-        url: match[1].replace(/\\\//g, "/"),
-        referer: embedUrl
+        url: match.replace(/\\\//g, "/"),
+        referer: finalEmbed,
+        isDirect: true
       };
     }
   } catch (_) {}
+
+  // Fallback: return unwrapped embed URL if not still on tooniboy.xyz
+  if (!finalEmbed.includes("tooniboy.xyz")) {
+    return { url: finalEmbed, referer: referer, isDirect: false };
+  }
   return null;
 }
 
@@ -99,32 +104,30 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (!pageRes.ok) continue;
       const pageHtml = await pageRes.text();
 
-      // Match Torofilm ?trembed= iframes + standard player iframes
       const iframeRegex = /<iframe[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+)["']/gi;
       let m;
       while ((m = iframeRegex.exec(pageHtml)) !== null) {
-        let embedUrl = m[1].replace(/&amp;/g, "&");
+        let embedUrl = m.replace(/&amp;/g, "&");
         if (embedUrl.startsWith("//")) embedUrl = "https:" + embedUrl;
         if (embedUrl.startsWith("/")) embedUrl = BASE_URL + embedUrl;
         if (/youtube|facebook|google|ads|gravatar/i.test(embedUrl)) continue;
         if (seenEmbeds.has(embedUrl)) continue;
         seenEmbeds.add(embedUrl);
 
-        const extracted = await extractMediaUrl(embedUrl, pageUrl, headers);
-        if (extracted) {
-          let label = "Server " + (streams.length + 1);
+        const resolved = await resolveEmbed(embedUrl, pageUrl, headers);
+        if (resolved) {
+          let hostLabel = "Server " + (streams.length + 1);
           try {
-            const host = new URL(extracted.referer).hostname.replace("www.", "");
-            if (!host.includes("tooniboy")) label = host.split(".")[0];
+            hostLabel = new URL(resolved.referer).hostname.replace("www.", "").split(".");
           } catch (_) {}
 
           streams.push({
-            name: "Tooniboy (" + label + ")",
-            title: title + (mediaType === "tv" ? " S" + s + "E" + e : "") + "\n[Multi-Audio: Telugu / Hindi / Tamil / Eng]",
-            url: extracted.url,
+            name: "Tooniboy (" + hostLabel + ")",
+            title: title + (mediaType === "tv" ? " S" + s + "E" + e : "") + (resolved.isDirect ? " [Direct]" : " [Embed]") + "\n[Multi-Audio: Telugu / Hindi / Tamil / Eng]",
+            url: resolved.url,
             quality: "HD",
             headers: {
-              "Referer": extracted.referer,
+              "Referer": resolved.referer,
               "User-Agent": headers["User-Agent"]
             }
           });

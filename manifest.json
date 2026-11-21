@@ -1,7 +1,7 @@
 {
   "name": "Telugu Toons Custom Repo",
   "version": "1.0.0",
-  "providers": [
+  "scrapers": [
     {
       "id": "tooniboy_xyz_te",
       "name": "Tooniboy (Telugu)",

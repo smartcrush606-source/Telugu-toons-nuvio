@@ -29,12 +29,23 @@ function getTitle(tmdbId, mediaType) {
 }
 
 function findStream(text) {
-  var r1 = text.match(/(https?:\/\/[a-z0-9.-]*ravok\.buzz[^"'\s\\]+)/i);
-  if (r1) return at(r1, 1).replace(/\\\//g, "/");
-  var r2 = text.match(/["']?(?:videoSource|file)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
-  if (r2 && !/\.(?:jpg|png|webp|vtt|srt|js|css)/i.test(at(r2, 1))) return at(r2, 1).replace(/\\\//g, "/");
-  var r3 = text.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
-  if (r3) return at(r3, 1).replace(/\\\//g, "/");
+  // 1. Parse JSON response from /player/index.php?data=ID&do=getVideo
+  try {
+    var j = JSON.parse(text);
+    if (j && j.videoSource) return String(j.videoSource).replace(/\\\//g, "/");
+    if (j && j.videoSources && j.videoSources.length > 0) {
+      var first = at(j.videoSources, 0);
+      if (first && first.file) return String(first.file).replace(/\\\//g, "/");
+    }
+  } catch (_) {}
+
+  // 2. Fallback regex (ignoring scripts.php, .js, .css, images)
+  var vs = text.match(/["']?(?:videoSource|file)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
+  if (vs && !/(?:scripts\.php|\.js|\.css|\.jpg|\.png|\.webp|\.vtt|\.srt)/i.test(at(vs, 1))) {
+    return at(vs, 1).replace(/\\\//g, "/");
+  }
+  var std = text.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
+  if (std) return at(std, 1).replace(/\\\//g, "/");
   return "";
 }
 
@@ -81,19 +92,29 @@ function getStreams(tmdbId, mediaType, season, episode) {
               : Promise.resolve(h1);
 
             return fetchInner.then(function(h2) {
-              var direct = findStream(h2);
               var origin = targetUrl.split("/").slice(0, 3).join("/");
+              var direct = findStream(h2);
               if (direct) {
                 return [{
                   name: "Tooniboy • Multi-Audio",
-                  title: title + " S" + s + "E" + e + "\n" + direct,
+                  title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]\n" + direct,
                   url: direct,
                   type: "hls",
                   quality: "HD",
                   headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
                 }];
               }
-              var vid = at(at(targetUrl.split("/"), targetUrl.split("/").length - 1).split("?"), 0);
+
+              // Extract ID from targetUrl (e.g. https://ravok.buzz or ?data=ID)
+              var vid = "";
+              var qMatch = targetUrl.match(/[?&](?:data|id|v)=([^&]+)/i);
+              if (qMatch) {
+                vid = at(qMatch, 1);
+              } else {
+                var cleanPath = at(targetUrl.split("?"), 0).replace(/\/+$/, "");
+                vid = at(cleanPath.split("/"), cleanPath.split("/").length - 1);
+              }
+
               return fetch(origin + "/player/index.php?data=" + encodeURIComponent(vid) + "&do=getVideo", {
                 method: "POST",
                 headers: {
@@ -101,9 +122,9 @@ function getStreams(tmdbId, mediaType, season, episode) {
                   "Referer": targetUrl,
                   "Origin": origin,
                   "X-Requested-With": "XMLHttpRequest",
-                  "Content-Type": "application/x-www-form-urlencoded"
+                  "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
                 },
-                body: "hash=" + encodeURIComponent(vid) + "&r=" + encodeURIComponent(BASE_URL + "/")
+                body: "hash=" + encodeURIComponent(vid) + "&r=" + encodeURIComponent(firstEmbed)
               })
                 .then(function(r3) { return r3.text(); })
                 .then(function(apiTxt) {
@@ -111,14 +132,19 @@ function getStreams(tmdbId, mediaType, season, episode) {
                   if (apiStream) {
                     return [{
                       name: "Tooniboy • Multi-Audio",
-                      title: title + " S" + s + "E" + e + "\n" + apiStream,
+                      title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]\n" + apiStream,
                       url: apiStream,
                       type: "hls",
                       quality: "HD",
                       headers: { "Referer": targetUrl, "Origin": origin, "User-Agent": ua }
                     }];
                   }
-                  return [];
+                  return [{
+                    name: "Tooniboy API Debug",
+                    title: "ID=" + vid + " | Resp=" + apiTxt.slice(0, 100),
+                    url: targetUrl,
+                    quality: "DEBUG"
+                  }];
                 });
             });
           });

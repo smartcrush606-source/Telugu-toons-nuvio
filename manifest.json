@@ -1,0 +1,32 @@
+{
+  "name": "Telugu Toons Custom Repo",
+  "version": "1.0.0",
+  "providers": [
+    {
+      "id": "tooniboy_xyz_te",
+      "name": "Tooniboy (Telugu)",
+      "description": "Telugu & Multi-Audio Cartoons/Anime from tooniboy.xyz",
+      "version": "1.0.0",
+      "author": "Custom",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/tooniboy.js",
+      "enabled": true,
+      "contentLanguage": ["te", "hi", "ta", "en"],
+      "formats": ["mp4", "m3u8"],
+      "supportsExternalPlayer": true
+    },
+    {
+      "id": "toonworld4all_me_te",
+      "name": "ToonWorld4All (Telugu)",
+      "description": "Telugu Multi-Audio Cartoons & Anime from toonworld4all.me",
+      "version": "1.0.0",
+      "author": "Custom",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/toonworld.js",
+      "enabled": true,
+      "contentLanguage": ["te", "hi", "ta", "en"],
+      "formats": ["mp4", "mkv", "m3u8"],
+      "supportsExternalPlayer": true
+    }
+  ]
+}

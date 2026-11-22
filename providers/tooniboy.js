@@ -1,6 +1,6 @@
 
 var BASE_URL = "https://tooniboy.xyz";
-var TMDB_KEY = "f2999de87d4e2c1dcde9aa5f60721bf7";
+
 
 function slugify(text) {
   return String(text)

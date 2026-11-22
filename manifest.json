@@ -17,19 +17,3 @@
     }
   ]
 }
-
-    {
-      "id": "toonworld4all_me_te",
-      "name": "ToonWorld4All (Telugu)",
-      "description": "Telugu Multi-Audio Cartoons & Anime from toonworld4all.me",
-      "version": "1.0.0",
-      "author": "Custom",
-      "supportedTypes": ["movie", "tv"],
-      "filename": "providers/toonworld.js",
-      "enabled": true,
-      "contentLanguage": ["te", "hi", "ta", "en"],
-      "formats": ["mp4", "mkv", "m3u8"],
-      "supportsExternalPlayer": true
-    }
-  ]
-}

@@ -1,16 +1,16 @@
 
 {
   "name": "Telugu Toons Custom Repo",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "scrapers": [
     {
       "id": "tooniboy_xyz_te",
       "name": "Tooniboy (Telugu)",
       "description": "Telugu & Multi-Audio Cartoons/Anime from tooniboy.xyz",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": "Custom",
       "supportedTypes": ["movie", "tv"],
-      "filename": "providers/tooniboy.js?v=13",
+      "filename": "providers/tooniboy.js?v=14",
       "enabled": true,
       "contentLanguage": ["te", "hi", "ta", "en"],
       "formats": ["mp4", "m3u8"],

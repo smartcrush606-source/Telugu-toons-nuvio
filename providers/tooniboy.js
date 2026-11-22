@@ -32,9 +32,11 @@ function findStream(text) {
   try {
     var j = JSON.parse(text);
     if (j && j.videoSource) return String(j.videoSource).replace(/\\\//g, "/");
+    if (j && j.hls2) return String(j.hls2).replace(/\\\//g, "/");
+    if (j && j.hls4) return String(j.hls4).replace(/\\\//g, "/");
   } catch (_) {}
 
-  var vs = text.match(/["']?(?:videoSource|file)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
+  var vs = text.match(/["']?(?:videoSource|file|hls2|hls4|hls3)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
   if (vs && !/(?:scripts\.php|\.js|\.css|\.jpg|\.png|\.webp|\.vtt|\.srt)/i.test(at(vs, 1))) {
     return at(vs, 1).replace(/\\\//g, "/");
   }

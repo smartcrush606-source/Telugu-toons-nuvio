@@ -44,6 +44,7 @@ function findStream(text) {
 }
 
 function checkEmbed(embedUrl, pageUrl, title, s, e, label, ua) {
+  if (!embedUrl) return Promise.resolve(null);
   return fetch(embedUrl, { headers: { "User-Agent": ua, "Referer": pageUrl } })
     .then(function(r1) { return r1.text(); })
     .then(function(h1) {
@@ -61,7 +62,7 @@ function checkEmbed(embedUrl, pageUrl, title, s, e, label, ua) {
         if (direct) {
           return {
             name: "Tooniboy • " + label,
-            title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
+            title: title + " S" + s + "E" + e + " [Multi-Audio: Telugu / Tamil / Hindi]",
             url: direct,
             type: "hls",
             quality: "HD",
@@ -95,7 +96,7 @@ function checkEmbed(embedUrl, pageUrl, title, s, e, label, ua) {
             if (apiStream) {
               return {
                 name: "Tooniboy • " + label,
-                title: title + " S" + s + "E" + e + " [Telugu / Tamil / Hindi]",
+                title: title + " S" + s + "E" + e + " [Multi-Audio: Telugu / Tamil / Hindi]",
                 url: apiStream,
                 type: "hls",
                 quality: "HD",
@@ -109,6 +110,37 @@ function checkEmbed(embedUrl, pageUrl, title, s, e, label, ua) {
     .catch(function() { return null; });
 }
 
+function scrapePage(pageUrl, title, s, e, ua, hdr) {
+  return fetch(pageUrl, { headers: hdr })
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      var regex = /<iframe[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
+      var m;
+      var embeds = [];
+      while ((m = regex.exec(html)) !== null) {
+        var u = at(m, 1).replace(/&amp;/g, "&");
+        if (u.indexOf("//") === 0) u = "https:" + u;
+        if (u.indexOf("/") === 0) u = BASE_URL + u;
+        if (u && !/youtube|facebook|google|ads|gravatar/i.test(u) && embeds.indexOf(u) === -1) {
+          embeds.push(u);
+        }
+      }
+
+      if (embeds.length === 0) return [];
+
+      return checkEmbed(at(embeds, 0), pageUrl, title, s, e, "Multi-Audio", ua).then(function(s1) {
+        if (s1) return [s1];
+        return checkEmbed(at(embeds, 1), pageUrl, title, s, e, "Server 2 (Multi-Audio)", ua).then(function(s2) {
+          if (s2) return [s2];
+          return checkEmbed(at(embeds, 2), pageUrl, title, s, e, "Server 3 (Multi-Audio)", ua).then(function(s3) {
+            return s3 ? [s3] : [];
+          });
+        });
+      });
+    })
+    .catch(function() { return []; });
+}
+
 function getStreams(tmdbId, mediaType, season, episode) {
   var ua = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
   var hdr = { "User-Agent": ua, "Referer": BASE_URL + "/" };
@@ -118,37 +150,20 @@ function getStreams(tmdbId, mediaType, season, episode) {
     var slug = slugify(title);
     var s = season || 1;
     var e = episode || 1;
-    var pageUrl = mediaType === "movie"
-      ? BASE_URL + "/movies/" + slug + "/"
-      : BASE_URL + "/episode/" + slug + "-" + s + "x" + e + "/";
 
-    return fetch(pageUrl, { headers: hdr })
-      .then(function(r) { return r.text(); })
-      .then(function(html) {
-        var regex = /<iframe[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
-        var m;
-        var embeds = [];
-        while ((m = regex.exec(html)) !== null) {
-          var u = at(m, 1).replace(/&amp;/g, "&");
-          if (u.indexOf("//") === 0) u = "https:" + u;
-          if (u.indexOf("/") === 0) u = BASE_URL + u;
-          if (u && !/youtube|facebook|google|ads|gravatar/i.test(u) && embeds.indexOf(u) === -1) {
-            embeds.push(u);
-          }
-        }
+    if (mediaType === "movie") {
+      return scrapePage(BASE_URL + "/movies/" + slug + "/", title, s, e, ua, hdr);
+    }
 
-        if (embeds.length === 0) return [];
-
-        return checkEmbed(at(embeds, 0), pageUrl, title, s, e, "Multi-Audio", ua).then(function(s1) {
-          if (s1) return [s1];
-          if (embeds.length > 1) {
-            return checkEmbed(at(embeds, 1), pageUrl, title, s, e, "Server 2", ua).then(function(s2) {
-              return s2 ? [s2] : [];
-            });
-          }
-          return [];
-        });
-      });
+    var primaryUrl = BASE_URL + "/episode/" + slug + "-" + s + "x" + e + "/";
+    return scrapePage(primaryUrl, title, s, e, ua, hdr).then(function(list) {
+      if (list && list.length > 0) return list;
+      if (slug === "ben-10") {
+        var classicUrl = BASE_URL + "/episode/ben-10-classic-" + s + "x" + e + "/";
+        return scrapePage(classicUrl, title, s, e, ua, hdr);
+      }
+      return [];
+    });
   }).catch(function() { return []; });
 }
 

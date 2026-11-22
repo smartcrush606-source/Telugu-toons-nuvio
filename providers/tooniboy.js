@@ -27,11 +27,36 @@ function getTitle(id, mediaType) {
 
   return fetch("https://api.themoviedb." +
     "org/3/" + type + "/" + id +
-    "?api_key=" + encodeURIComponent(TMDB_KEY))
+    "?api_key=" + encodeURIComponent(TMBD_KEY_FIX()))
     .then(function(r) { return r.json(); })
     .then(function(d) {
       return d ? (d.name || d.title || "") : "";
     });
+}
+
+function TMBD_KEY_FIX() {
+  return TMDB_KEY;
+}
+
+function extractInfo(html) {
+  var iframe = "";
+  var stream = "";
+
+  var im = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+  if (im) iframe = im[1];
+
+  var sm = html.match(/(?:file|videoSource|hls2|hls3|hls4)\s*[:=]\s*["'](https?:\/\/[^"']+)["']/i);
+  if (sm) stream = sm[1];
+
+  if (!stream) {
+    var fm = html.match(/https?:\/\/[^"' \s<>]+\.(?:m3u8|mp4)(?:\?[^"' \s<>]*)?/i);
+    if (fm) stream = fm[0];
+  }
+
+  return {
+    iframe: iframe,
+    stream: stream
+  };
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
@@ -66,20 +91,19 @@ function getStreams(tmdbId, mediaType, season, episode) {
       return r.text().then(function(html) {
         var embeds = [];
 
-        var trRegex = /(https?:\/\/tooniboy\.xyz\/\?trembed=\d+[^"'\s<>]*|\/\?trembed=\d+[^"'\s<>]*)/gi;
+        var tr = /(https?:\/\/tooniboy\.xyz\/\?trembed=\d+[^"'\s<>]*|\/\?trembed=\d+[^"'\s<>]*)/gi;
         var m;
 
-        while ((m = trRegex.exec(html)) !== null) {
+        while ((m = tr.exec(html)) !== null) {
           var u = m[1].replace(/&amp;/g, "&");
           if (u.indexOf("/") === 0) u = BASE_URL + u;
           if (embeds.indexOf(u) === -1) embeds.push(u);
         }
 
-        var regex = /(?:<iframe[^>]+(?:src|data-src)|data-url)=["']([^"']+)["']/gi;
+        var re = /(?:<iframe[^>]+(?:src|data-src)|data-url)=["']([^"']+)["']/gi;
 
-        while ((m = regex.exec(html)) !== null) {
+        while ((m = re.exec(html)) !== null) {
           var u2 = m[1].replace(/&amp;/g, "&");
-
           if (u2.indexOf("//") === 0) u2 = "https:" + u2;
           if (u2.indexOf("/") === 0) u2 = BASE_URL + u2;
 
@@ -90,26 +114,58 @@ function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
-        if (embeds.length === 0) {
+        var selected = [];
+
+        for (var i = 0; i < embeds.length; i++) {
+          if (/ravok\.buzz|rubystm\.com|abyssplayer\.com/i.test(embeds[i])) {
+            selected.push(embeds[i]);
+          }
+        }
+
+        if (selected.length === 0) {
           return [{
-            name: "DEBUG: NO EMBEDS FOUND",
-            title: "HTTP " + status + " | HTML " + html.length,
+            name: "DEBUG: TARGET PLAYERS NOT FOUND",
+            title: "HTTP " + status + " | Embeds " + embeds.length,
             url: pageUrl,
             quality: "DEBUG"
           }];
         }
 
-        return embeds.map(function(link, index) {
-          return {
-            name: "EMBED " + (index + 1) + ": " + link,
-            title: title + " | Player URL",
-            url: pageUrl,
-            quality: "DEBUG",
+        var jobs = selected.map(function(link) {
+          return fetch(link, {
             headers: {
-              "Referer": BASE_URL + "/"
+              "User-Agent": ua,
+              "Referer": pageUrl
             }
-          };
+          }).then(function(response) {
+            return response.text().then(function(body) {
+              var info = extractInfo(body);
+              var host = link.match(/^https?:\/\/([^/]+)/i);
+
+              return {
+                name: "PLAYER " + (host ? host[1] : "UNKNOWN") +
+                  " | HTTP " + response.status,
+                title: "HTML " + body.length +
+                  " chars | iframe: " + (info.iframe || "none") +
+                  " | stream: " + (info.stream || "none"),
+                url: pageUrl,
+                quality: "DEBUG",
+                headers: {
+                  "Referer": pageUrl
+                }
+              };
+            });
+          }).catch(function(err) {
+            return {
+              name: "PLAYER FETCH FAILED: " + link,
+              title: String(err).slice(0, 180),
+              url: pageUrl,
+              quality: "DEBUG"
+            };
+          });
         });
+
+        return Promise.all(jobs);
       });
     });
   }).catch(function(err) {

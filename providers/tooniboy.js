@@ -110,32 +110,6 @@ function checkEmbed(embedUrl, pageUrl, title, s, e, label, ua) {
     .catch(function() { return null; });
 }
 
-function scrapePage(pageUrl, title, s, e, ua, hdr) {
-  return fetch(pageUrl, { headers: hdr })
-    .then(function(r) { return r.text(); })
-    .then(function(html) {
-      var regex = /<iframe[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
-      var m;
-      var embeds = [];
-      while ((m = regex.exec(html)) !== null) {
-        var u = at(m, 1).replace(/&amp;/g, "&");
-        if (u.indexOf("//") === 0) u = "https:" + u;
-        if (u.indexOf("/") === 0) u = BASE_URL + u;
-        if (u && !/youtube|facebook|google|ads|gravatar/i.test(u) && embeds.indexOf(u) === -1) {
-          embeds.push(u);
-        }
-      }
-      if (embeds.length === 0) return [];
-      return checkEmbed(at(embeds, 0), pageUrl, title, s, e, "Multi-Audio", ua).then(function(s1) {
-        if (s1) return [s1];
-        return checkEmbed(at(embeds, 1), pageUrl, title, s, e, "Server 2 (Multi-Audio)", ua).then(function(s2) {
-          return s2 ? [s2] : [];
-        });
-      });
-    })
-    .catch(function() { return []; });
-}
-
 function getStreams(tmdbId, mediaType, season, episode) {
   var ua = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
   var hdr = { "User-Agent": ua, "Referer": BASE_URL + "/" };
@@ -145,35 +119,47 @@ function getStreams(tmdbId, mediaType, season, episode) {
     var slug = slugify(title);
     var s = season || 1;
     var e = episode || 1;
+    var pageUrl = mediaType === "movie"
+      ? BASE_URL + "/movies/" + slug + "/"
+      : BASE_URL + "/episode/" + slug + "-" + s + "x" + e + "/";
 
-    if (mediaType === "movie") {
-      return scrapePage(BASE_URL + "/movies/" + slug + "/", title, s, e, ua, hdr);
-    }
-
-    var primaryUrl = BASE_URL + "/episode/" + slug + "-" + s + "x" + e + "/";
-    return scrapePage(primaryUrl, title, s, e, ua, hdr).then(function(list) {
-      if (list && list.length > 0) return list;
-
-      // Fallback: search tooniboy.xyz directly for the exact episode URL
-      var q = title.replace(/[:\-]/g, " ");
-      return fetch(BASE_URL + "/?s=" + encodeURIComponent(q), { headers: hdr })
-        .then(function(sr) { return sr.text(); })
-        .then(function(sHtml) {
-          var epRe = new RegExp('href="(https?:\\/\\/tooniboy\\.xyz\\/episode\\/[^"]*-' + s + "x" + e + '\\/?)"', "i");
-          var epM = sHtml.match(epRe);
-          if (epM) {
-            return scrapePage(at(epM, 1), title, s, e, ua, hdr);
+    return fetch(pageUrl, { headers: hdr })
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var regex = /<iframe[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
+        var m;
+        var embeds = [];
+        while ((m = regex.exec(html)) !== null) {
+          var u = at(m, 1).replace(/&amp;/g, "&");
+          if (u.indexOf("//") === 0) u = "https:" + u;
+          if (u.indexOf("/") === 0) u = BASE_URL + u;
+          if (u && !/youtube|facebook|google|ads|gravatar/i.test(u) && embeds.indexOf(u) === -1) {
+            embeds.push(u);
           }
-          var serM = sHtml.match(/href="(https?:\/\/tooniboy\.xyz\/series\/[^"]+\/?)"/i);
-          if (serM) {
-            var serSlug = at(at(serM, 1).replace(/\/+$/, "").split("/"), 4);
-            if (serSlug) {
-              return scrapePage(BASE_URL + "/episode/" + serSlug + "-" + s + "x" + e + "/", title, s, e, ua, hdr);
-            }
-          }
-          return [];
+        }
+
+        if (embeds.length === 0) {
+          return [{
+            name: "Tooniboy Check",
+            title: "URL=" + pageUrl + " | len=" + html.length + " | 0 iframes",
+            url: pageUrl,
+            quality: "INFO"
+          }];
+        }
+
+        return checkEmbed(at(embeds, 0), pageUrl, title, s, e, "Multi-Audio", ua).then(function(s1) {
+          if (s1) return [s1];
+          return checkEmbed(at(embeds, 1), pageUrl, title, s, e, "Server 2 (Multi-Audio)", ua).then(function(s2) {
+            if (s2) return [s2];
+            return [{
+              name: "Tooniboy Check",
+              title: "URL=" + pageUrl + " | e0=" + at(embeds, 0) + " | e1=" + at(embeds, 1),
+              url: pageUrl,
+              quality: "INFO"
+            }];
+          });
         });
-    });
+      });
   }).catch(function() { return []; });
 }
 

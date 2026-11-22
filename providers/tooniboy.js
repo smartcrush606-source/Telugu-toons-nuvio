@@ -1,6 +1,6 @@
 
 var BASE_URL = "https://tooniboy." + "xyz";
-var TMDB_KEY = "PASTE_YOUR_NEW_TMDB_KEY_HERE";
+var TMDB_KEY = "f2999de87d4e2c1dcde9aa5f60721bf7";
 
 function at(arr, idx) {
   return arr && arr.length > idx ? arr.slice(idx, idx + 1).join("") : "";

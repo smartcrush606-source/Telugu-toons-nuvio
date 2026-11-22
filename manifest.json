@@ -9,7 +9,7 @@
       "version": "1.0.0",
       "author": "Custom",
       "supportedTypes": ["movie", "tv"],
-      "filename": "providers/tooniboy.js?v=11",
+      "filename": "providers/tooniboy.js?v=12",
       "enabled": true,
       "contentLanguage": ["te", "hi", "ta", "en"],
       "formats": ["mp4", "m3u8"],

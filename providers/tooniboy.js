@@ -28,17 +28,35 @@ function getTitle(tmdbId, mediaType) {
     .then(function(d) { return d ? (d.name || d.title || "") : ""; });
 }
 
+function unpack(html) {
+  var m = html.match(/eval\(function\(p,a,c,k,e,[dr]\)\{[\s\S]*?\}\('([^']+)',\s*(\d+),\s*(\d+),\s*'([^']+)'\.split\('\|'\)/);
+  if (!m) return html;
+  var p = at(m, 1);
+  var a = parseInt(at(m, 2), 10);
+  var c = parseInt(at(m, 3), 10);
+  var k = at(m, 4).split("|");
+  while (c--) {
+    var word = at(k, c);
+    if (word) {
+      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), word);
+    }
+  }
+  return p;
+}
+
 function findStream(text) {
   try {
     var j = JSON.parse(text);
     if (j && j.videoSource) return String(j.videoSource).replace(/\\\//g, "/");
   } catch (_) {}
 
-  var vs = text.match(/["']?(?:videoSource|file)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
+  var combined = text + "\n" + unpack(text);
+
+  var vs = combined.match(/["']?(?:videoSource|file|hls2|hls4|hls3)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
   if (vs && !/(?:scripts\.php|\.js|\.css|\.jpg|\.png|\.webp|\.vtt|\.srt)/i.test(at(vs, 1))) {
     return at(vs, 1).replace(/\\\//g, "/");
   }
-  var std = text.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
+  var std = combined.match(/(https?:\/\/[^"'\s\\]+\.(?:m3u8|mp4)[^"'\s\\]*)/i);
   if (std) return at(std, 1).replace(/\\\//g, "/");
   return "";
 }
@@ -126,9 +144,20 @@ function getStreams(tmdbId, mediaType, season, episode) {
     return fetch(pageUrl, { headers: hdr })
       .then(function(r) { return r.text(); })
       .then(function(html) {
-        var regex = /<iframe[^>]+(?:src|data-src)=["']([^"']+)["']/gi;
-        var m;
         var embeds = [];
+
+        // 1. Grab Torofilm ?trembed= links first (Server 1 Play / ravok.buzz)
+        var trRegex = /(https?:\/\/tooniboy\.xyz\/\?trembed=\d+[^"'\s<>]*|\/\?trembed=\d+[^"'\s<>]*)/gi;
+        var tm;
+        while ((tm = trRegex.exec(html)) !== null) {
+          var tu = at(tm, 1).replace(/&amp;/g, "&");
+          if (tu.indexOf("/") === 0) tu = BASE_URL + tu;
+          if (embeds.indexOf(tu) === -1) embeds.push(tu);
+        }
+
+        // 2. Grab all iframe src / data-src / data-url links (rubystm, filesforever, etc.)
+        var regex = /(?:<iframe[^>]+(?:src|data-src)|data-url)=["']([^"']+)["']/gi;
+        var m;
         while ((m = regex.exec(html)) !== null) {
           var u = at(m, 1).replace(/&amp;/g, "&");
           if (u.indexOf("//") === 0) u = "https:" + u;
@@ -138,25 +167,15 @@ function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
-        if (embeds.length === 0) {
-          return [{
-            name: "0 embeds: " + pageUrl + " (len=" + html.length + ")",
-            title: pageUrl,
-            url: pageUrl,
-            quality: "INFO"
-          }];
-        }
+        if (embeds.length === 0) return [];
 
-        return checkEmbed(at(embeds, 0), pageUrl, title, s, e, "Multi-Audio", ua).then(function(s1) {
+        return checkEmbed(at(embeds, 0), pageUrl, title, s, e, "Server 1 (Multi-Audio)", ua).then(function(s1) {
           if (s1) return [s1];
           return checkEmbed(at(embeds, 1), pageUrl, title, s, e, "Server 2 (Multi-Audio)", ua).then(function(s2) {
             if (s2) return [s2];
-            return [{
-              name: "e0=" + at(embeds, 0) + " | e1=" + at(embeds, 1),
-              title: pageUrl,
-              url: pageUrl,
-              quality: "INFO"
-            }];
+            return checkEmbed(at(embeds, 2), pageUrl, title, s, e, "Server 3 (Multi-Audio)", ua).then(function(s3) {
+              return s3 ? [s3] : [];
+            });
           });
         });
       });

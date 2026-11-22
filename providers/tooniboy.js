@@ -140,8 +140,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
         if (embeds.length === 0) {
           return [{
-            name: "Tooniboy Check",
-            title: "URL=" + pageUrl + " | len=" + html.length + " | 0 iframes",
+            name: "0 embeds: " + pageUrl + " (len=" + html.length + ")",
+            title: pageUrl,
             url: pageUrl,
             quality: "INFO"
           }];
@@ -152,8 +152,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
           return checkEmbed(at(embeds, 1), pageUrl, title, s, e, "Server 2 (Multi-Audio)", ua).then(function(s2) {
             if (s2) return [s2];
             return [{
-              name: "Tooniboy Check",
-              title: "URL=" + pageUrl + " | e0=" + at(embeds, 0) + " | e1=" + at(embeds, 1),
+              name: "e0=" + at(embeds, 0) + " | e1=" + at(embeds, 1),
+              title: pageUrl,
               url: pageUrl,
               quality: "INFO"
             }];

@@ -1,6 +1,6 @@
 
 var BASE_URL = "https://tooniboy." + "xyz";
-var TMDB_KEY = "YOUR_NEW_TMDB_API_KEY";
+var TMDB_KEY = "PASTE_YOUR_NEW_TMDB_KEY_HERE";
 
 function at(arr, idx) {
   return arr && arr.length > idx ? arr.slice(idx, idx + 1).join("") : "";
@@ -50,7 +50,6 @@ function unpack(html) {
 
   while (c--) {
     var word = at(k, c);
-
     if (word) {
       p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), word);
     }
@@ -62,7 +61,6 @@ function unpack(html) {
 function findStream(text) {
   try {
     var j = JSON.parse(text);
-
     if (j && j.videoSource) {
       return String(j.videoSource).replace(/\\\//g, "/");
     }
@@ -179,8 +177,8 @@ function checkEmbed(embedUrl, pageUrl, title, s, e, label, ua) {
 
 function debugResult(message, pageUrl) {
   return [{
-    name: "Tooniboy DEBUG",
-    title: message,
+    name: "DEBUG: " + message,
+    title: "Tooniboy diagnostic",
     url: pageUrl || BASE_URL + "/",
     quality: "DEBUG",
     headers: {

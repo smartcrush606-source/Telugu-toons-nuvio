@@ -1,6 +1,6 @@
 
 var BASE_URL = "https://tooniboy." + "xyz";
-var TMDB_KEY = "f2999de87d4e2c1dcde9aa5f60721bf7";
+var TMDB_KEY = "PASTE_YOUR_NEW_TMDB_KEY_HERE";
 
 function at(arr, idx) {
   return arr && arr.length > idx ? arr.slice(idx, idx + 1).join("") : "";
@@ -153,7 +153,6 @@ function checkEmbed(embedUrl, pageUrl, title, s, e, label, ua) {
           .then(function(r3) { return r3.text(); })
           .then(function(apiTxt) {
             var apiStream = findStream(apiTxt);
-
             if (!apiStream) return null;
 
             return {
@@ -175,16 +174,24 @@ function checkEmbed(embedUrl, pageUrl, title, s, e, label, ua) {
     });
 }
 
-function debugResult(message, pageUrl) {
-  return [{
-    name: "DEBUG: " + message,
-    title: "Tooniboy diagnostic",
-    url: pageUrl || BASE_URL + "/",
-    quality: "DEBUG",
-    headers: {
-      "Referer": BASE_URL + "/"
-    }
-  }];
+function debugEmbeds(embeds, pageUrl, info) {
+  if (!embeds.length) {
+    return [{
+      name: "DEBUG: " + info,
+      title: "No embed links found",
+      url: pageUrl,
+      quality: "DEBUG"
+    }];
+  }
+
+  return embeds.map(function(u, i) {
+    return {
+      name: "DEBUG EMBED " + (i + 1),
+      title: u,
+      url: pageUrl,
+      quality: "DEBUG"
+    };
+  });
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
@@ -195,11 +202,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
     "Referer": BASE_URL + "/"
   };
 
-  var stage = "TMDB title lookup";
-
   return getTitle(tmdbId, mediaType).then(function(title) {
     if (!title) {
-      return debugResult("Title lookup returned empty");
+      return [{
+        name: "DEBUG: Title lookup failed",
+        title: "TMDB did not return a title",
+        url: BASE_URL + "/",
+        quality: "DEBUG"
+      }];
     }
 
     var slug = slugify(title);
@@ -210,15 +220,11 @@ function getStreams(tmdbId, mediaType, season, episode) {
       ? BASE_URL + "/movies/" + slug + "/"
       : BASE_URL + "/episode/" + slug + "-" + s + "x" + e + "/";
 
-    stage = "Episode page fetch";
-
     return fetch(pageUrl, { headers: hdr })
       .then(function(r) {
         var status = r.status;
 
         return r.text().then(function(html) {
-          stage = "Episode HTML received";
-
           var embeds = [];
 
           var trRegex = /(https?:\/\/tooniboy\.xyz\/\?trembed=\d+[^"'\s<>]*|\/\?trembed=\d+[^"'\s<>]*)/gi;
@@ -226,7 +232,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
           while ((tm = trRegex.exec(html)) !== null) {
             var tu = at(tm, 1).replace(/&amp;/g, "&");
-
             if (tu.indexOf("/") === 0) tu = BASE_URL + tu;
             if (embeds.indexOf(tu) === -1) embeds.push(tu);
           }
@@ -246,23 +251,13 @@ function getStreams(tmdbId, mediaType, season, episode) {
             }
           }
 
-          var hosts = [];
-
-          for (var i = 0; i < embeds.length && i < 10; i++) {
-            var hm = embeds[i].match(/^https?:\/\/([^/]+)/i);
-            hosts.push(hm ? hm[1] : "unknown");
-          }
-
           var info = "HTTP " + status +
             " | HTML " + html.length +
-            " chars | Embeds " + embeds.length +
-            " | Hosts: " + hosts.join(", ");
+            " | Embeds " + embeds.length;
 
           if (embeds.length === 0) {
-            return debugResult(info + " | No embeds found", pageUrl);
+            return debugEmbeds([], pageUrl, info);
           }
-
-          stage = "Checking embed links";
 
           var results = [];
           var checks = [];
@@ -288,14 +283,17 @@ function getStreams(tmdbId, mediaType, season, episode) {
           return Promise.all(checks).then(function() {
             if (results.length > 0) return results;
 
-            return debugResult(info + " | No streams extracted", pageUrl);
+            return debugEmbeds(embeds, pageUrl, info);
           });
         });
       });
   }).catch(function(err) {
-    return debugResult(
-      "ERROR at " + stage + ": " + String(err).slice(0, 180)
-    );
+    return [{
+      name: "DEBUG ERROR",
+      title: String(err).slice(0, 200),
+      url: BASE_URL + "/",
+      quality: "DEBUG"
+    }];
   });
 }
 

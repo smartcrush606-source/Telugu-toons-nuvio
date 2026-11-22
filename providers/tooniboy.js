@@ -32,11 +32,9 @@ function findStream(text) {
   try {
     var j = JSON.parse(text);
     if (j && j.videoSource) return String(j.videoSource).replace(/\\\//g, "/");
-    if (j && j.hls2) return String(j.hls2).replace(/\\\//g, "/");
-    if (j && j.hls4) return String(j.hls4).replace(/\\\//g, "/");
   } catch (_) {}
 
-  var vs = text.match(/["']?(?:videoSource|file|hls2|hls4|hls3)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
+  var vs = text.match(/["']?(?:videoSource|file)["']?\s*:\s*["'](https?:\/\/[^"'\s\\]+)["']/i);
   if (vs && !/(?:scripts\.php|\.js|\.css|\.jpg|\.png|\.webp|\.vtt|\.srt)/i.test(at(vs, 1))) {
     return at(vs, 1).replace(/\\\//g, "/");
   }
@@ -127,16 +125,11 @@ function scrapePage(pageUrl, title, s, e, ua, hdr) {
           embeds.push(u);
         }
       }
-
       if (embeds.length === 0) return [];
-
       return checkEmbed(at(embeds, 0), pageUrl, title, s, e, "Multi-Audio", ua).then(function(s1) {
         if (s1) return [s1];
         return checkEmbed(at(embeds, 1), pageUrl, title, s, e, "Server 2 (Multi-Audio)", ua).then(function(s2) {
-          if (s2) return [s2];
-          return checkEmbed(at(embeds, 2), pageUrl, title, s, e, "Server 3 (Multi-Audio)", ua).then(function(s3) {
-            return s3 ? [s3] : [];
-          });
+          return s2 ? [s2] : [];
         });
       });
     })
@@ -160,11 +153,26 @@ function getStreams(tmdbId, mediaType, season, episode) {
     var primaryUrl = BASE_URL + "/episode/" + slug + "-" + s + "x" + e + "/";
     return scrapePage(primaryUrl, title, s, e, ua, hdr).then(function(list) {
       if (list && list.length > 0) return list;
-      if (slug === "ben-10") {
-        var classicUrl = BASE_URL + "/episode/ben-10-classic-" + s + "x" + e + "/";
-        return scrapePage(classicUrl, title, s, e, ua, hdr);
-      }
-      return [];
+
+      // Fallback: search tooniboy.xyz directly for the exact episode URL
+      var q = title.replace(/[:\-]/g, " ");
+      return fetch(BASE_URL + "/?s=" + encodeURIComponent(q), { headers: hdr })
+        .then(function(sr) { return sr.text(); })
+        .then(function(sHtml) {
+          var epRe = new RegExp('href="(https?:\\/\\/tooniboy\\.xyz\\/episode\\/[^"]*-' + s + "x" + e + '\\/?)"', "i");
+          var epM = sHtml.match(epRe);
+          if (epM) {
+            return scrapePage(at(epM, 1), title, s, e, ua, hdr);
+          }
+          var serM = sHtml.match(/href="(https?:\/\/tooniboy\.xyz\/series\/[^"]+\/?)"/i);
+          if (serM) {
+            var serSlug = at(at(serM, 1).replace(/\/+$/, "").split("/"), 4);
+            if (serSlug) {
+              return scrapePage(BASE_URL + "/episode/" + serSlug + "-" + s + "x" + e + "/", title, s, e, ua, hdr);
+            }
+          }
+          return [];
+        });
     });
   }).catch(function() { return []; });
 }
